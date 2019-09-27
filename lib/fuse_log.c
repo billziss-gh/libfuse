@@ -14,9 +14,10 @@
 #include <stdio.h>
 
 static void default_log_func(
-		__attribute__(( unused )) enum fuse_log_level level,
+		enum fuse_log_level level,
 		const char *fmt, va_list ap)
 {
+	(void)level;
 	vfprintf(stderr, fmt, ap);
 }
 

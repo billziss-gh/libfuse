@@ -224,6 +224,7 @@ int fuse_start_thread(pthread_t *thread_id, void *(*func)(void *), void *arg)
 
 static struct fuse_chan *fuse_clone_chan(struct fuse_mt *mt)
 {
+#if !defined(_WIN32)
 	int res;
 	int clonefd;
 	uint32_t masterfd;
@@ -254,6 +255,9 @@ static struct fuse_chan *fuse_clone_chan(struct fuse_mt *mt)
 		close(clonefd);
 
 	return newch;
+#else
+	return 0;
+#endif
 }
 
 static int fuse_loop_start_thread(struct fuse_mt *mt)

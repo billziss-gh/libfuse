@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <stdlib.h>
 
+#if !defined(_WIN32)
 static struct fuse_session *fuse_instance;
 
 static void exit_handler(int sig)
@@ -89,3 +90,13 @@ void fuse_remove_signal_handlers(struct fuse_session *se)
 	set_one_signal_handler(SIGTERM, exit_handler, 1);
 	set_one_signal_handler(SIGPIPE, do_nothing, 1);
 }
+#else
+int fuse_set_signal_handlers(struct fuse_session *se)
+{
+	return 0;
+}
+
+void fuse_remove_signal_handlers(struct fuse_session *se)
+{
+}
+#endif

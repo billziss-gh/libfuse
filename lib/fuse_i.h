@@ -8,6 +8,7 @@
 
 #include "fuse.h"
 #include "fuse_lowlevel.h"
+#include <pthread.h>
 
 struct mount_opts;
 

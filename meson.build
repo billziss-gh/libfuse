@@ -7,8 +7,8 @@ platform = host_machine.system()
 if platform == 'darwin'
   error('libfuse does not support OS-X.\n' +
         'Take a look at http://osxfuse.github.io/ instead')
-elif platform == 'cygwin' or platform == 'windows'
-  error('libfuse does not support Windows.\n' +
+elif platform == 'cygwin'
+  error('libfuse does not support Windows/Cygwin.\n' +
         'Take a look at http://www.secfs.net/winfsp/ instead')       
 endif
 
@@ -47,14 +47,18 @@ cfg.set('HAVE_ICONV',
         cc.has_function('iconv', prefix: '#include <iconv.h>'))
 
 # Test if structs have specific member
-cfg.set('HAVE_STRUCT_STAT_ST_ATIM',
-         cc.has_member('struct stat', 'st_atim',
-                       prefix: include_default,
-                       args: args_default))
-cfg.set('HAVE_STRUCT_STAT_ST_ATIMESPEC',
-         cc.has_member('struct stat', 'st_atimespec',
-                       prefix: include_default,
-                       args: args_default))
+if platform != 'windows'
+    cfg.set('HAVE_STRUCT_STAT_ST_ATIM',
+            cc.has_member('struct stat', 'st_atim',
+                    prefix: include_default,
+                    args: args_default))
+    cfg.set('HAVE_STRUCT_STAT_ST_ATIMESPEC',
+            cc.has_member('struct stat', 'st_atimespec',
+                    prefix: include_default,
+                    args: args_default))
+else
+    cfg.set('HAVE_STRUCT_STAT_ST_ATIM', true)
+endif
 
 # Write the test results into config.h (stored in build directory)
 configure_file(output: 'config.h',
@@ -63,13 +67,34 @@ configure_file(output: 'config.h',
 #
 # Compiler configuration
 #
-add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H', '-Wall', '-Wextra', '-Wno-sign-compare',
-                      '-Wstrict-prototypes', '-Wmissing-declarations', '-Wwrite-strings',
-                      '-fno-strict-aliasing', language: 'c')
-add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H', '-D_GNU_SOURCE',
-                     '-Wall', '-Wextra', '-Wno-sign-compare', '-std=c++11',
-                     '-Wmissing-declarations', '-Wwrite-strings',
-                     '-fno-strict-aliasing', language: 'cpp')
+if platform != 'windows'
+    add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H', '-Wall', '-Wextra', '-Wno-sign-compare',
+                    '-Wstrict-prototypes', '-Wmissing-declarations', '-Wwrite-strings',
+                    '-fno-strict-aliasing', language: 'c')
+    add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H', '-D_GNU_SOURCE',
+                    '-Wall', '-Wextra', '-Wno-sign-compare', '-std=c++11',
+                    '-Wmissing-declarations', '-Wwrite-strings',
+                    '-fno-strict-aliasing', language: 'cpp')
+else
+    add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H',
+                    '-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_WARNINGS',
+                    '-D_INO_T_DEFINED', '-D_DEV_T_DEFINED', '-D_OFF_T_DEFINED',
+                    '-Wall',
+                    '-wd4018', '-wd4100', '-wd4127', '-wd4146', '-wd4152', '-wd4200', '-wd4204',
+                    '-wd4214', '-wd4221', '-wd4242', '-wd4244', '-wd4255', '-wd4267', '-wd4389',
+                    '-wd4457', '-wd4464', '-wd4668', '-wd4701', '-wd4710', '-wd4774', '-wd4820',
+                    '-wd5045',
+                    language: 'c')
+    add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H', '-D_GNU_SOURCE',
+                    '-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_WARNINGS',
+                    '-D_INO_T_DEFINED', '-D_DEV_T_DEFINED', '-D_OFF_T_DEFINED',
+                    '-Wall',
+                    '-wd4018', '-wd4100', '-wd4127', '-wd4146', '-wd4152', '-wd4200', '-wd4204',
+                    '-wd4214', '-wd4221', '-wd4242', '-wd4244', '-wd4255', '-wd4267', '-wd4389',
+                    '-wd4457', '-wd4464', '-wd4668', '-wd4701', '-wd4710', '-wd4774', '-wd4820',
+                    '-wd5045',
+                    language: 'cpp')
+endif
 
 # Some (stupid) GCC versions warn about unused return values even when they are
 # casted to void. This makes -Wunused-result pretty useless, since there is no
@@ -82,13 +107,17 @@ int main(void) {
     (void) get_4();
     return 0;
 }'''
-if not cc.compiles(code, args: [ '-O0', '-Werror=unused-result' ])
+if platform != 'windows' and not cc.compiles(code, args: [ '-O0', '-Werror=unused-result' ])
      message('Compiler warns about unused result even when casting to void')
      add_project_arguments('-Wno-unused-result', language: 'c')
 endif
 
 # '.' will refer to current build directory, which contains config.h
-include_dirs = include_directories('include', 'lib', '.')
+if platform != 'windows'
+    include_dirs = include_directories('include', 'lib', '.')
+else
+    include_dirs = include_directories('include', 'lib', 'lib/windows', '.')
+endif
 
 # Common dependencies
 thread_dep = dependency('threads') 
@@ -96,8 +125,12 @@ thread_dep = dependency('threads')
 #
 # Read build files from sub-directories
 #
-subdirs = [ 'lib', 'include', 'test' ]
-if get_option('utils') and not platform.endswith('bsd') and platform != 'dragonfly'
+if platform != 'windows'
+  subdirs = [ 'lib', 'include', 'test' ]
+else
+  subdirs = [ 'lib', 'include' ]
+endif
+if get_option('utils') and not platform.endswith('bsd') and platform != 'dragonfly' and platform != 'windows'
   subdirs += [ 'util', 'doc' ]
 endif
 

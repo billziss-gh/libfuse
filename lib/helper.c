@@ -148,12 +148,18 @@ static int fuse_helper_opt_proc(void *data, const char *arg, int key,
 	switch (key) {
 	case FUSE_OPT_KEY_NONOPT:
 		if (!opts->mountpoint) {
+#if !defined(_WIN32)
 			if (fuse_mnt_parse_fuse_fd(arg) != -1) {
 				return fuse_opt_add_opt(&opts->mountpoint, arg);
 			}
+#endif
 
 			char mountpoint[PATH_MAX] = "";
+#if !defined(_WIN32)
 			if (realpath(arg, mountpoint) == NULL) {
+#else
+			if (realpath_ex(arg, mountpoint, 0) == NULL) {
+#endif
 				fuse_log(FUSE_LOG_ERR,
 					"fuse: bad mount point `%s': %s\n",
 					arg, strerror(errno));
@@ -224,6 +230,7 @@ int fuse_parse_cmdline(struct fuse_args *args,
 
 int fuse_daemonize(int foreground)
 {
+#if !defined(_WIN32)
 	if (!foreground) {
 		int nullfd;
 		int waiter[2];
@@ -273,6 +280,7 @@ int fuse_daemonize(int foreground)
 	} else {
 		(void) chdir("/");
 	}
+#endif
 	return 0;
 }
 

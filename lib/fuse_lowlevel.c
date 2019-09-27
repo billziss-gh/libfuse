@@ -39,21 +39,30 @@
 #define PARAM(inarg) (((char *)(inarg)) + sizeof(*(inarg)))
 #define OFFSET_MAX 0x7fffffffffffffffLL
 
+#if !defined(_WIN32)
 #define container_of(ptr, type, member) ({				\
 			const typeof( ((type *)0)->member ) *__mptr = (ptr); \
 			(type *)( (char *)__mptr - offsetof(type,member) );})
+#else
+#define container_of(ptr, type, member)	\
+	CONTAINING_RECORD(ptr, type, member)
+#endif
 
 struct fuse_pollhandle {
 	uint64_t kh;
 	struct fuse_session *se;
 };
 
+#if !defined(_WIN32)
 static size_t pagesize;
 
 static __attribute__((constructor)) void fuse_ll_init_pagesize(void)
 {
 	pagesize = getpagesize();
 }
+#else
+static size_t pagesize = FUSE_PAGE_SIZE;
+#endif
 
 static void convert_stat(const struct fuse_stat *stbuf, struct fuse_attr *attr)
 {
@@ -496,9 +505,15 @@ static int fuse_send_data_iov_fallback(struct fuse_session *se,
 		return fuse_send_msg(se, ch, iov, iov_count);
 	}
 
+#if !defined(_WIN32)
 	res = posix_memalign(&mbuf, pagesize, len);
 	if (res != 0)
 		return res;
+#else
+	mbuf = _aligned_malloc(len, pagesize);
+	if (0 == mbuf)
+		return ENOMEM;
+#endif
 
 	mem_buf.buf[0].mem = mbuf;
 	res = fuse_buf_copy(&mem_buf, buf, 0);
@@ -512,7 +527,11 @@ static int fuse_send_data_iov_fallback(struct fuse_session *se,
 	iov[iov_count].iov_len = len;
 	iov_count++;
 	res = fuse_send_msg(se, ch, iov, iov_count);
+#if !defined(_WIN32)
 	free(mbuf);
+#else
+	_aligned_free(mbuf);
+#endif
 
 	return res;
 }
@@ -2471,7 +2490,9 @@ static struct {
 	[FUSE_READDIRPLUS] = { do_readdirplus,	"READDIRPLUS"},
 	[FUSE_RENAME2]     = { do_rename2,      "RENAME2"    },
 	[FUSE_COPY_FILE_RANGE] = { do_copy_file_range, "COPY_FILE_RANGE" },
+#if !defined(_WIN32)
 	[CUSE_INIT]	   = { cuse_lowlevel_init, "CUSE_INIT"   },
+#endif
 };
 
 #define FUSE_MAXOP (sizeof(fuse_ll_ops) / sizeof(fuse_ll_ops[0]))
@@ -2935,7 +2956,11 @@ struct fuse_session *fuse_session_new(struct fuse_args *args,
 	}
 
 	memcpy(&se->op, op, op_size);
+#if !defined(_WIN32)
 	se->owner = getuid();
+#else
+	se->owner = 0;
+#endif
 	se->userdata = userdata;
 
 	se->mo = mo;
@@ -2957,6 +2982,7 @@ int fuse_session_mount(struct fuse_session *se, const char *mountpoint)
 {
 	int fd;
 
+#if !defined(_WIN32)
 	/*
 	 * Make sure file descriptors 0, 1 and 2 are open, otherwise chaos
 	 * would ensue.
@@ -2984,6 +3010,7 @@ int fuse_session_mount(struct fuse_session *se, const char *mountpoint)
 		se->fd = fd;
 		return 0;
 	}
+#endif
 
 	/* Open channel */
 	fd = fuse_kern_mount(mountpoint, se->mo);

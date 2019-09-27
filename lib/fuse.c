@@ -50,7 +50,11 @@
 #define RENAME_EXCHANGE		(1 << 1)	/* Exchange source and dest */
 #endif
 
+#if !defined(_WIN32)
 #define FUSE_DEFAULT_INTR_SIGNAL SIGUSR1
+#else
+#define FUSE_DEFAULT_INTR_SIGNAL 0
+#endif
 
 #define FUSE_UNKNOWN_INO 0xffffffff
 #define OFFSET_MAX 0x7fffffffffffffffLL
@@ -93,9 +97,14 @@ struct node_table {
 	size_t split;
 };
 
+#if !defined(_WIN32)
 #define container_of(ptr, type, member) ({                              \
 			const typeof( ((type *)0)->member ) *__mptr = (ptr); \
 			(type *)( (char *)__mptr - offsetof(type,member) );})
+#else
+#define container_of(ptr, type, member)	\
+	CONTAINING_RECORD(ptr, type, member)
+#endif
 
 #define list_entry(ptr, type, member)           \
 	container_of(ptr, type, member)
@@ -1562,6 +1571,7 @@ struct fuse_intr_data {
 	int finished;
 };
 
+#if !defined(_WIN32)
 static void fuse_interrupt(fuse_req_t req, void *d_)
 {
 	struct fuse_intr_data *d = d_;
@@ -1602,19 +1612,24 @@ static void fuse_do_prepare_interrupt(fuse_req_t req, struct fuse_intr_data *d)
 	d->finished = 0;
 	fuse_req_interrupt_func(req, fuse_interrupt, d);
 }
+#endif
 
 static inline void fuse_finish_interrupt(struct fuse *f, fuse_req_t req,
 					 struct fuse_intr_data *d)
 {
+#if !defined(_WIN32)
 	if (f->conf.intr)
 		fuse_do_finish_interrupt(f, req, d);
+#endif
 }
 
 static inline void fuse_prepare_interrupt(struct fuse *f, fuse_req_t req,
 					  struct fuse_intr_data *d)
 {
+#if !defined(_WIN32)
 	if (f->conf.intr)
 		fuse_do_prepare_interrupt(req, d);
+#endif
 }
 
 static const char* file_info_string(struct fuse_file_info *fi,
@@ -2685,7 +2700,11 @@ static void fuse_lib_lookup(fuse_req_t req, fuse_ino_t parent,
 				dot = get_node_nocheck(f, parent);
 				if (dot == NULL) {
 					pthread_mutex_unlock(&f->lock);
+#if defined(ESTALE)
 					reply_entry(req, &e, -ESTALE);
+#else
+					reply_entry(req, &e, -ENOENT);
+#endif
 					return;
 				}
 				dot->refctr++;
@@ -4463,6 +4482,7 @@ struct fuse_session *fuse_get_session(struct fuse *f)
 	return f->se;
 }
 
+#if !defined(_WIN32)
 static int fuse_session_loop_remember(struct fuse *f)
 {
 	struct fuse_session *se = f->se;
@@ -4514,14 +4534,17 @@ static int fuse_session_loop_remember(struct fuse *f)
 	fuse_session_reset(se);
 	return res < 0 ? -1 : 0;
 }
+#endif
 
 int fuse_loop(struct fuse *f)
 {
 	if (!f)
 		return -1;
 
+#if !defined(_WIN32)
 	if (lru_enabled(f))
 		return fuse_session_loop_remember(f);
+#endif
 
 	return fuse_session_loop(f->se);
 }
@@ -4705,6 +4728,7 @@ void fuse_lib_help(struct fuse_args *args)
 
 				      
 
+#if !defined(_WIN32)
 static int fuse_init_intr_signal(int signum, int *installed)
 {
 	struct sigaction old_sa;
@@ -4738,6 +4762,7 @@ static void fuse_restore_intr_signal(int signum)
 	sa.sa_handler = SIG_DFL;
 	sigaction(signum, &sa, NULL);
 }
+#endif
 
 
 static int fuse_push_module(struct fuse *f, const char *module,
@@ -4945,10 +4970,12 @@ struct fuse *fuse_new_31(struct fuse_args *args,
 	strcpy(root->inline_name, "/");
 	root->name = root->inline_name;
 
+#if !defined(_WIN32)
 	if (f->conf.intr &&
 	    fuse_init_intr_signal(f->conf.intr_signal,
 				  &f->intr_installed) == -1)
 		goto out_free_root;
+#endif
 
 	root->parent = NULL;
 	root->nodeid = FUSE_ROOT_ID;
@@ -4957,8 +4984,10 @@ struct fuse *fuse_new_31(struct fuse_args *args,
 
 	return f;
 
+#if !defined(_WIN32)
 out_free_root:
 	free(root);
+#endif
 out_free_id_table:
 	free(f->id_table.array);
 out_free_name_table:
@@ -5011,8 +5040,10 @@ void fuse_destroy(struct fuse *f)
 {
 	size_t i;
 
+#if !defined(_WIN32)
 	if (f->conf.intr && f->intr_installed)
 		fuse_restore_intr_signal(f->conf.intr_signal);
+#endif
 
 	if (f->fs) {
 		fuse_create_context(f);
