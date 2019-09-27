@@ -814,7 +814,7 @@ void fuse_remove_signal_handlers(struct fuse_session *se);
 
 #if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__ >= 6) && !defined __cplusplus
 _Static_assert(sizeof(off_t) == 8, "fuse: off_t must be 64bit");
-#else
+#elif !defined(_WIN32)
 struct _fuse_off_t_must_be_64bit_dummy_struct \
 	{ unsigned _fuse_off_t_must_be_64bit:((sizeof(off_t) == 8) ? 1 : -1); };
 #endif
