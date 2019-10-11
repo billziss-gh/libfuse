@@ -156,10 +156,14 @@ int open(const char *path, int oflag, ...)
         CREATE_NEW :
         cd[(oflag & (_O_CREAT | _O_TRUNC)) >> 8];
 
+    PthreadCancelableIoEnter();
+
     HANDLE h = CreateFileA(path,
         DesiredAccess, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         0/* default security */,
         CreationDisposition, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS, 0);
+
+    PthreadCancelableIoLeave();
 
     if (INVALID_HANDLE_VALUE == h)
         return error();
@@ -172,6 +176,17 @@ int close(int fd)
     HANDLE Handle = (HANDLE)(intptr_t)fd;
     BOOL Success;
 
+    /*
+     * POSIX requires close to be a cancelation point. But CancelSynchronousIo cannot
+     * (I believe) cancel a CloseHandle. We frame it as cancelable I/O for symmetry,
+     * and with the understanding that only the equivalent of pthread_cancel will be
+     * performed.
+     *
+     * Note that CloseHandle should not block under normal circumstances, so this should
+     * not be an issue.
+     */
+    PthreadCancelableIoEnter();
+
     if (FuseFdIsHandle(Handle))
     {
         SetLastError(ERROR_INVALID_HANDLE);
@@ -180,6 +195,8 @@ int close(int fd)
     else
         Success = CloseHandle(Handle);
     
+    PthreadCancelableIoLeave();
+
     return Success ? 0 : error();
 }
 
@@ -190,6 +207,8 @@ ssize_t pread(int fd, void *buf, size_t nbyte, fuse_off_t offset)
     DWORD BytesTransferred = 0;
     BOOL Success;
 
+    PthreadCancelableIoEnter();
+
     if (FuseFdIsHandle(Handle))
         Success = FuseReadFile(Handle, buf, (DWORD)nbyte, &BytesTransferred);
     else
@@ -198,6 +217,8 @@ ssize_t pread(int fd, void *buf, size_t nbyte, fuse_off_t offset)
         Overlapped.OffsetHigh = (DWORD)(offset >> 32);
         Success = ReadFile(Handle, buf, (DWORD)nbyte, &BytesTransferred, &Overlapped);
     }
+
+    PthreadCancelableIoLeave();
 
     return Success || ERROR_HANDLE_EOF == GetLastError() ? BytesTransferred : error();
 }
@@ -208,10 +229,14 @@ ssize_t read(int fd, void *buf, size_t nbyte)
     DWORD BytesTransferred = 0;
     BOOL Success;
 
+    PthreadCancelableIoEnter();
+
     if (FuseFdIsHandle(Handle))
         Success = FuseReadFile(Handle, buf, (DWORD)nbyte, &BytesTransferred);
     else
         Success = ReadFile(Handle, buf, (DWORD)nbyte, &BytesTransferred, 0);
+
+    PthreadCancelableIoLeave();
 
     return Success || ERROR_HANDLE_EOF == GetLastError() ? BytesTransferred : error();
 }
@@ -223,6 +248,8 @@ ssize_t pwrite(int fd, const void *buf, size_t nbyte, fuse_off_t offset)
     DWORD BytesTransferred = 0;
     BOOL Success;
 
+    PthreadCancelableIoEnter();
+
     if (FuseFdIsHandle(Handle))
         Success = FuseWriteFile(Handle, buf, (DWORD)nbyte, &BytesTransferred);
     else
@@ -231,6 +258,8 @@ ssize_t pwrite(int fd, const void *buf, size_t nbyte, fuse_off_t offset)
         Overlapped.OffsetHigh = (DWORD)(offset >> 32);
         Success = WriteFile(Handle, buf, (DWORD)nbyte, &BytesTransferred, &Overlapped);
     }
+
+    PthreadCancelableIoLeave();
 
     return Success ? BytesTransferred : error();
 }
@@ -241,10 +270,14 @@ ssize_t write(int fd, const void *buf, size_t nbyte)
     DWORD BytesTransferred = 0;
     BOOL Success;
 
+    PthreadCancelableIoEnter();
+
     if (FuseFdIsHandle(Handle))
         Success = FuseWriteFile(Handle, buf, (DWORD)nbyte, &BytesTransferred);
     else
         Success = WriteFile(Handle, buf, (DWORD)nbyte, &BytesTransferred, 0);
+
+    PthreadCancelableIoLeave();
 
     return Success ? BytesTransferred : error();
 }
@@ -282,11 +315,15 @@ ssize_t writev(int fd, const struct fuse_iovec *iov, int iovcnt)
         nbyte += iov[i].iov_len;
     }
 
+    PthreadCancelableIoEnter();
+
     if (FuseFdIsHandle(Handle))
         Success = FuseWriteFile(Handle, buf, (DWORD)nbyte, &BytesTransferred);
     else
         Success = WriteFile(Handle, buf, (DWORD)nbyte, &BytesTransferred, 0);
     
+    PthreadCancelableIoLeave();
+
     if (stackbuf != buf)
         HeapFree(GetProcessHeap(), 0, buf);
 
@@ -444,7 +481,10 @@ struct pthread_rec
     void *Arg;
     HANDLE Thread;
     void *Retval;
+    SRWLOCK CancelLock;
     HANDLE CancelEvent;
+    BOOL Canceled;
+    BOOL CancelableIoPending;
     int CancelState;
     LONG RefCount;
 };
@@ -469,6 +509,7 @@ static struct pthread_rec *pthread_rec_create(void *(*start)(void *), void *arg)
 
     rec->Start = start;
     rec->Arg = arg;
+    InitializeSRWLock(&rec->CancelLock);
     rec->CancelEvent = CreateEventW(0, TRUE, FALSE, 0);
     rec->CancelState = PTHREAD_CANCEL_ENABLE;
     rec->RefCount = 1;
@@ -553,7 +594,41 @@ int pthread_cancel(pthread_t thread)
 {
     struct pthread_rec *rec = thread;
 
+    /*
+     * 2-PHASE CANCELATION: PHASE 1
+     *
+     * Set the Canceled variable to TRUE and signal the CancelEvent. This allows the use of
+     * pthread_cancel and PthreadCancelableWaitForSingleObject.
+     *
+     * SetEvent below acts as memory barrier. But note that thread may also be interrupted
+     * after Canceled = TRUE, but before SetEvent. For this reason we must WaitForSingleObject
+     * (which also acts as memory barriter) with an INFINITE timeout after checking Canceled.
+     */
+    rec->Canceled = TRUE;
     SetEvent(rec->CancelEvent);
+
+    /*
+     * 2-PHASE CANCELATION: PHASE 2
+     *
+     * Use CancelSynchronousIo in a retry loop. This allows the cancelation of any synchronous
+     * I/O that has marked itself as cancelable, by framing itself with PthreadCancelableIoEnter
+     * and PthreadCancelableIoLeave.
+     *
+     * The reason that CancelSynchronousIo has to be retried is because it may arrive just before
+     * (or just after) the synchronous I/O call. Hence we retry if we see ERROR_NOT_FOUND.
+     */
+    for (int retry = 1;; retry++)
+    {
+        AcquireSRWLockExclusive(&rec->CancelLock);
+        BOOL Done =
+            !rec->CancelableIoPending ||
+            CancelSynchronousIo(rec->Thread) ||
+            ERROR_NOT_FOUND != GetLastError();
+        ReleaseSRWLockExclusive(&rec->CancelLock);
+        if (Done || 3 == retry)
+            break;
+        SwitchToThread();
+    }
 
     return 0;
 }
@@ -562,9 +637,11 @@ void pthread_testcancel(void)
 {
     struct pthread_rec *rec = pthread_self();
 
-    if (PTHREAD_CANCEL_ENABLE == rec->CancelState)
-        if (WAIT_OBJECT_0 == WaitForSingleObject(rec->CancelEvent, 0))
-            pthread_exit(PTHREAD_CANCELED);
+    if (PTHREAD_CANCEL_ENABLE != rec->CancelState)
+        return;
+
+    if (rec->Canceled && WAIT_OBJECT_0 == WaitForSingleObject(rec->CancelEvent, INFINITE))
+        pthread_exit(PTHREAD_CANCELED);
 }
 
 int pthread_setcancelstate(int state, int *oldstate)
@@ -623,15 +700,44 @@ DWORD PthreadCancelableWaitForSingleObject(HANDLE Handle, DWORD Timeout)
 
     if (PTHREAD_CANCEL_ENABLE == rec->CancelState)
     {
-        WaitObjects[0] = Handle;
-        WaitObjects[1] = rec->CancelEvent;
+        /*
+         * Place CancelEvent in slot 0 in the WaitObjects array.
+         * This is so that if both objects are signaled, the CancelEvent
+         * takes precedence.
+         */
+        WaitObjects[0] = rec->CancelEvent;
+        WaitObjects[1] = Handle;
         WaitResult = WaitForMultipleObjects(2, WaitObjects, FALSE, Timeout);
-        if (WAIT_OBJECT_0 + 1 == WaitResult)
+        switch (WaitResult)
+        {
+        case WAIT_OBJECT_0:
             pthread_exit(PTHREAD_CANCELED);
-        return WaitResult;
+            /* never reached; silence compiler warning */
+            //SetLastError(...);
+            return WAIT_FAILED;
+        case WAIT_OBJECT_0 + 1:
+            return WAIT_OBJECT_0;
+        default:
+            return WaitResult;
+        }
     }
     else
         return WaitForSingleObject(Handle, Timeout);
+}
+
+VOID PthreadCancelableIo(BOOL Pending)
+{
+    struct pthread_rec *rec = pthread_self();
+
+    if (PTHREAD_CANCEL_ENABLE != rec->CancelState)
+        return;
+
+    if (rec->Canceled && WAIT_OBJECT_0 == WaitForSingleObject(rec->CancelEvent, INFINITE))
+        pthread_exit(PTHREAD_CANCELED);
+
+    AcquireSRWLockExclusive(&rec->CancelLock);
+    rec->CancelableIoPending = Pending;
+    ReleaseSRWLockExclusive(&rec->CancelLock);
 }
 
 /*

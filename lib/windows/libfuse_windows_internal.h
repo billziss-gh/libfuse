@@ -43,6 +43,9 @@ struct fuse_iovec
 #endif
 
 DWORD PthreadCancelableWaitForSingleObject(HANDLE Handle, DWORD Timeout);
+VOID PthreadCancelableIo(BOOL Pending);
+#define PthreadCancelableIoEnter()      PthreadCancelableIo(TRUE)
+#define PthreadCancelableIoLeave()      PthreadCancelableIo(FALSE)
 
 #define FuseFdIsHandle(H)               (1 == ((intptr_t)(H) & 3))
 #define FuseHandleToFd(H)               ((int)(((intptr_t)(H) | 1) << 2))
