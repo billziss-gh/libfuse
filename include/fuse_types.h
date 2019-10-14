@@ -58,25 +58,61 @@ typedef uint64_t fuse_ino_t;
 #define O_EXCL                          _O_EXCL
 #define O_TRUNC                         _O_TRUNC
 
+#ifndef S_IFMT
 #define S_IFMT                          0170000
+#endif
+#ifndef S_IFDIR
 #define S_IFDIR                         0040000
+#endif
+#ifndef S_IFCHR
 #define S_IFCHR                         0020000
+#endif
+#ifndef S_IFBLK
 #define S_IFBLK                         0060000
+#endif
+#ifndef S_IFREG
 #define S_IFREG                         0100000
+#endif
+#ifndef S_IFLNK
 #define S_IFLNK                         0120000
+#endif
+#ifndef S_IFSOCK
 #define S_IFSOCK                        0140000
+#endif
+#ifndef S_IFIFO
 #define S_IFIFO                         0010000
+#endif
+#ifndef S_ISUID
 #define S_ISUID                         0004000
+#endif
+#ifndef S_ISGID
 #define S_ISGID                         0002000
+#endif
+#ifndef S_ISVTX
 #define S_ISVTX                         0001000
+#endif
 
+#ifndef S_ISDIR
 #define	S_ISDIR(m)                      (((m) & S_IFMT) == S_IFDIR)
+#endif
+#ifndef S_ISCHR
 #define	S_ISCHR(m)                      (((m) & S_IFMT) == S_IFCHR)
+#endif
+#ifndef S_ISBLK
 #define	S_ISBLK(m)                      (((m) & S_IFMT) == S_IFBLK)
+#endif
+#ifndef S_ISREG
 #define	S_ISREG(m)                      (((m) & S_IFMT) == S_IFREG)
+#endif
+#ifndef S_ISLNK
 #define	S_ISLNK(m)                      (((m) & S_IFMT) == S_IFLNK)
+#endif
+#ifndef S_ISSOCK
 #define	S_ISSOCK(m)                     (((m) & S_IFMT) == S_IFSOCK)
+#endif
+#ifndef S_ISFIFO
 #define	S_ISFIFO(m)                     (((m) & S_IFMT) == S_IFIFO)
+#endif
 
 #define F_GETLK                         7
 #define F_SETLK                         8
