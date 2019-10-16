@@ -119,6 +119,7 @@ static NTSTATUS (*FspFsctlGetVolumeList)(PWSTR DevicePath,
 static NTSTATUS (*FspFsctlPreflight)(PWSTR DevicePath);
 static NTSTATUS (*FspMountSet)(FSP_MOUNT_DESC *Desc);
 static NTSTATUS (*FspMountRemove)(FSP_MOUNT_DESC *Desc);
+static NTSTATUS (*FspVersion)(PUINT32 PVersion);
 
 static inline
 NTSTATUS FspLoad(PVOID *PModule)
@@ -198,9 +199,10 @@ static BOOL FuseInit(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context)
 {
 #define GET_API(n)                      \
     if (0 == (*(void **)&(n) = GetProcAddress(Module, #n)))\
-        return 0;
+        goto fail;
 
-    PVOID Module;
+    PVOID Module = 0;
+    UINT32 Version;
     NTSTATUS Result;
 
     Result = FspLoad(&Module);
@@ -213,11 +215,19 @@ static BOOL FuseInit(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context)
     GET_API(FspFsctlStop);
     GET_API(FspFsctlGetVolumeList);
     GET_API(FspFsctlPreflight);
-
     GET_API(FspMountSet);
     GET_API(FspMountRemove);
+    GET_API(FspVersion);
+
+    Result = FspVersion(&Version);
+    if (0 > Result || 1 != HIWORD(Version) || 5 > LOWORD(Version))
+        goto fail;
 
     return TRUE;
+
+fail:
+    FreeLibrary(Module);
+    return FALSE;
 
 #undef GET_API
 }
@@ -290,6 +300,7 @@ static struct fuse_opt fuse_mount_opts[] =
     FUSE_OPT_KEY("--UNC=", 'U'),
     FUSE_OPT_KEY("VolumePrefix=", 'U'),
     FUSE_OPT_KEY("--VolumePrefix=", 'U'),
+    FUSE_OPT_KEY("fstypename=", 'F'),
     FUSE_OPT_KEY("FileSystemName=", 'F'),
     FUSE_OPT_KEY("--FileSystemName=", 'F'),
 
@@ -352,7 +363,7 @@ struct mount_opts *parse_mount_opts(struct fuse_args *args)
     mo->VolumeParams.FileInfoTimeout = 1000;
     mo->VolumeParams.FlushAndPurgeOnCleanup = TRUE;
 
-    if (0 != args && -1 == fuse_opt_parse(args, mo, fuse_mount_opts, fuse_mount_opt_proc) == -1)
+    if (0 != args && -1 == fuse_opt_parse(args, mo, fuse_mount_opts, fuse_mount_opt_proc))
         goto fail;
 
     if (!mo->set_FileInfoTimeout && mo->set_attr_timeout)

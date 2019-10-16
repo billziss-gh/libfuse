@@ -431,6 +431,7 @@ int pthread_key_create(pthread_key_t *keyp, void (*dtor)(void *))
             {
                 pthread_key_recs[i].key = key;
                 pthread_key_recs[i].dtor = dtor;
+                break;
             }
 
         ReleaseSRWLockExclusive(&pthread_key_lock);
@@ -456,6 +457,7 @@ int pthread_key_delete(pthread_key_t key)
         {
             pthread_key_recs[i].key = 0;
             pthread_key_recs[i].dtor = 0;
+            break;
         }
 
     ReleaseSRWLockExclusive(&pthread_key_lock);
