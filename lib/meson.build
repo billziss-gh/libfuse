@@ -52,10 +52,10 @@ if not host_machine.system().startswith('windows')
                      link_args: ['-Wl,--version-script,' + meson.current_source_dir()
                                  + '/fuse_versionscript' ])
 else
-   libfuse = library('fuse3', libfuse_sources, version: meson.project_version(),
-                     soversion: '3', include_directories: include_dirs,
+   libfuse = library('fuse3', libfuse_sources,
+                     include_directories: include_dirs,
                      dependencies: deps, install: true,
-                     link_depends: 'fuse_versionscript',
+                     override_options: [ 'b_vscrt=mt' ],
                      c_args: [ '-DFUSE_USE_VERSION=34' ],
                      vs_module_defs: 'windows/fuse.def')
 endif
