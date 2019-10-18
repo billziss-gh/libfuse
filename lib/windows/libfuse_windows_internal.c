@@ -685,6 +685,8 @@ pthread_t pthread_self(void)
             pthread_rec_deref(rec);
             goto fail;
         }
+
+        pthread_setspecific(pthread_rec_key, rec);
     }
 
     return rec;

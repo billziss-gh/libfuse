@@ -48,8 +48,8 @@ VOID PthreadCancelableIo(BOOL Pending);
 #define PthreadCancelableIoLeave()      PthreadCancelableIo(FALSE)
 
 #define FuseFdIsHandle(H)               (1 == ((intptr_t)(H) & 3))
-#define FuseHandleToFd(H)               ((int)(((intptr_t)(H) | 1) << 2))
-#define FuseFdToHandle(H)               ((HANDLE)(((intptr_t)(H) & ~3) >> 2))
+#define FuseHandleToFd(H)               ((int)(((intptr_t)(H) << 2) | 0x00010001))
+#define FuseFdToHandle(H)               ((HANDLE)(((intptr_t)(H) & 0xfffc) >> 2))
 BOOL FuseReadFile(HANDLE Handle, void *Buffer, DWORD Length, PDWORD PBytesTransferred);
 BOOL FuseWriteFile(HANDLE Handle, const void *Buffer, DWORD Length, PDWORD PBytesTransferred);
 

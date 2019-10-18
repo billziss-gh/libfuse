@@ -255,8 +255,15 @@ BOOL FuseWriteFile(HANDLE Handle, const void *Buffer, DWORD Length, PDWORD PByte
 {
     FuseMount *Mount = FuseMounts[(intptr_t)FuseFdToHandle(Handle)];
 
-    return DeviceIoControl(Mount->VolumeHandle, FUSE_FSCTL_TRANSACT,
-        (void *)Buffer, Length, 0, 0, PBytesTransferred, 0);
+    if (!DeviceIoControl(Mount->VolumeHandle, FUSE_FSCTL_TRANSACT,
+        (void *)Buffer, Length, 0, 0, PBytesTransferred, 0))
+    {
+        *PBytesTransferred = 0;
+        return FALSE;
+    }
+
+    *PBytesTransferred = Length;
+    return TRUE;
 }
 
 /*
@@ -303,6 +310,8 @@ static struct fuse_opt fuse_mount_opts[] =
     FUSE_OPT_KEY("fstypename=", 'F'),
     FUSE_OPT_KEY("FileSystemName=", 'F'),
     FUSE_OPT_KEY("--FileSystemName=", 'F'),
+
+    FUSE_OPT_KEY("subtype=", FUSE_OPT_KEY_DISCARD),
 
     FUSE_OPT_END,
 };
@@ -490,8 +499,6 @@ int fuse_kern_mount(const char *mountpoint, struct mount_opts *mo)
         goto fail;
     }
     Mount->MountHandle = Desc.MountHandle;
-
-    FuseMounts[MountIndex] = Mount;
 
     return FuseHandleToFd(MountIndex);
 
