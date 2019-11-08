@@ -195,7 +195,7 @@ typedef struct
 static FuseMount *FuseMounts[64];
 
 static INIT_ONCE FuseOnce;
-static BOOL FuseInit(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context)
+static BOOL WINAPI FuseInit(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context)
 {
 #define GET_API(n)                      \
     if (0 == (*(void **)&(n) = GetProcAddress(Module, #n)))\

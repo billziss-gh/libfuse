@@ -82,8 +82,8 @@ else
                     '-Wall',
                     '-wd4018', '-wd4100', '-wd4127', '-wd4146', '-wd4152', '-wd4200', '-wd4204',
                     '-wd4214', '-wd4221', '-wd4242', '-wd4244', '-wd4255', '-wd4267', '-wd4389',
-                    '-wd4457', '-wd4464', '-wd4668', '-wd4701', '-wd4710', '-wd4774', '-wd4820',
-                    '-wd5045',
+                    '-wd4457', '-wd4464', '-wd4668', '-wd4701', '-wd4710', '-wd4711', '-wd4774',
+                    '-wd4820', '-wd5045',
                     language: 'c')
     add_project_arguments('-D_REENTRANT', '-DHAVE_CONFIG_H', '-D_GNU_SOURCE',
                     '-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_WARNINGS',
